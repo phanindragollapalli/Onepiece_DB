@@ -137,7 +137,7 @@ INSERT INTO Sky_Island (Location_ID, Altitude, Cloud_Type, Strategic_Importance)
 -- 5. CHARACTERS (Depends on Locations)
 -- ========================================
 
-INSERT INTO Character (First_Name, Middle_Name, Last_Name, Epithet, Origin_Island_Name, Origin_Sea_Name, Height, Age, Gender, Character_Type) VALUES
+INSERT INTO `Character` (First_Name, Middle_Name, Last_Name, Epithet, Origin_Island_Name, Origin_Sea_Name, Height, Age, Gender, Character_Type) VALUES
 -- Straw Hat Pirates
 ('Monkey', 'D.', 'Luffy', 'Straw Hat', 'Dawn Island', 'East Blue', 174.00, 19, 'Male', 'Pirate'),
 ('Roronoa', NULL, 'Zoro', 'Pirate Hunter', 'Shimotsuki Village', 'East Blue', 181.00, 21, 'Male', 'Pirate'),
@@ -248,7 +248,7 @@ INSERT INTO Pirate (Character_ID, Bounty, Tier, Threat_Level, Status, Role, Crew
 (28, 3189000000, 'Yonko', 'High', 'Active', 'Chairman', 12),
 
 -- Marines
-INSERT INTO Marine (Character_ID, Rank, Status, Branch_ID, Branch_Name, Stationed_Island_ID) VALUES
+INSERT INTO Marine (Character_ID, `Rank`, Status, Branch_ID, Branch_Name, Stationed_Island_ID) VALUES
 (29, 'Fleet Admiral', 'Active', 'HQ-001', 'Marine Headquarters', 23),
 (30, 'Admiral', 'Active', 'HQ-002', 'Marine Headquarters', 23),
 (31, 'Admiral', 'Retired', 'HQ-003', 'Marine Headquarters', NULL),
@@ -380,7 +380,7 @@ INSERT INTO Skill (Skill_Name, Category, Difficulty, User_ID) VALUES
 -- 11. VIVRE CARDS (Depends on Character)
 -- ========================================
 
-INSERT INTO Vivre_Card (Condition, Creator_ID, Current_Owner_ID) VALUES
+INSERT INTO Vivre_Card (`Condition`, Creator_ID, Current_Owner_ID) VALUES
 ('Intact', 13, 1),
 ('Intact', 1, 2),
 ('Intact', 1, 3),

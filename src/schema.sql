@@ -61,7 +61,7 @@ CREATE TABLE Sky_Island (
 );
 
 -- Character Table (Superclass)
-CREATE TABLE Character (
+CREATE TABLE `Character` (
   Character_ID INT AUTO_INCREMENT NOT NULL,
   First_Name VARCHAR(50) NOT NULL,
   Middle_Name VARCHAR(50),
@@ -86,20 +86,20 @@ CREATE TABLE Pirate (
   Role VARCHAR(100),
   Crew_ID INT,
   PRIMARY KEY (Character_ID),
-  FOREIGN KEY (Character_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (Character_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
   FOREIGN KEY (Crew_ID) REFERENCES Crew(Crew_ID) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- Marine Table (Subclass)
 CREATE TABLE Marine (
   Character_ID INT NOT NULL,
-  Rank ENUM('Seaman','Petty Officer','Lieutenant','Captain','Commodore','Rear Admiral','Vice Admiral','Admiral','Fleet Admiral') NOT NULL,
+  `Rank` ENUM('Seaman','Petty Officer','Lieutenant','Captain','Commodore','Rear Admiral','Vice Admiral','Admiral','Fleet Admiral') NOT NULL,
   Status ENUM('Active','On Leave','Retired','Deceased','Dishonorably Discharged') NOT NULL DEFAULT 'Active',
   Branch_ID VARCHAR(20) NOT NULL,
   Branch_Name VARCHAR(100) NOT NULL,
   Stationed_Island_ID INT,
   PRIMARY KEY (Character_ID),
-  FOREIGN KEY (Character_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (Character_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
   FOREIGN KEY (Stationed_Island_ID) REFERENCES Island(Location_ID) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -111,7 +111,7 @@ CREATE TABLE Revolutionary (
   Status ENUM('Active','Captured','Deceased','MIA','Undercover') NOT NULL DEFAULT 'Active',
   Stationed_Island_ID INT,
   PRIMARY KEY (Character_ID),
-  FOREIGN KEY (Character_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (Character_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
   FOREIGN KEY (Stationed_Island_ID) REFERENCES Island(Location_ID) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
@@ -149,18 +149,18 @@ CREATE TABLE Skill (
   Difficulty ENUM('Beginner','Intermediate','Advanced','Master','Legendary') NOT NULL,
   User_ID INT NOT NULL,
   PRIMARY KEY (Skill_ID, User_ID),
-  FOREIGN KEY (User_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE
+  FOREIGN KEY (User_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
 -- Vivre Card (each card made by a creator)
 CREATE TABLE Vivre_Card (
   Card_ID INT AUTO_INCREMENT NOT NULL,
-  Condition ENUM('Intact','Slightly Burned','Moderately Burned','Severely Burned','Nearly Gone') NOT NULL DEFAULT 'Intact',
+  `Condition` ENUM('Intact','Slightly Burned','Moderately Burned','Severely Burned','Nearly Gone') NOT NULL DEFAULT 'Intact',
   Creator_ID INT NOT NULL,
   Current_Owner_ID INT,
   PRIMARY KEY (Card_ID, Creator_ID),
-  FOREIGN KEY (Creator_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
-  FOREIGN KEY (Current_Owner_ID) REFERENCES Character(Character_ID) ON DELETE SET NULL ON UPDATE CASCADE
+  FOREIGN KEY (Creator_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (Current_Owner_ID) REFERENCES `Character`(Character_ID) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CAPTAINS: Which pirate is captain of which crew (each crew has one captain)
@@ -179,7 +179,7 @@ CREATE TABLE EATS (
   Character_ID INT NOT NULL UNIQUE,
   Fruit_ID INT NOT NULL UNIQUE,
   PRIMARY KEY (Consumption_ID),
-  FOREIGN KEY (Character_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (Character_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
   FOREIGN KEY (Fruit_ID) REFERENCES Devil_Fruit(Fruit_ID) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -190,7 +190,7 @@ CREATE TABLE HAS_CARD (
   Card_ID INT NOT NULL,
   Creator_ID INT NOT NULL,
   PRIMARY KEY (Card_Ownership_ID),
-  FOREIGN KEY (Current_Owner_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (Current_Owner_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
   FOREIGN KEY (Card_ID, Creator_ID) REFERENCES Vivre_Card(Card_ID, Creator_ID) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -201,7 +201,7 @@ CREATE TABLE HAS_SKILL (
   Skill_ID INT NOT NULL,
   User_ID INT NOT NULL,
   PRIMARY KEY (Skill_Usage_ID),
-  FOREIGN KEY (Character_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
+  FOREIGN KEY (Character_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE,
   FOREIGN KEY (Skill_ID, User_ID) REFERENCES Skill(Skill_ID, User_ID) ON DELETE CASCADE ON UPDATE CASCADE
 );
 
@@ -219,9 +219,9 @@ CREATE TABLE OWNS_PONEGLYPH (
 CREATE TABLE BATTLE (
   Battle_ID INT AUTO_INCREMENT NOT NULL,
   Faction1_Type ENUM('Crew','Marine','Revolutionary') NOT NULL,
-  Faction1_ID INT NOT NULL,
+  Faction1_ID INT,
   Faction2_Type ENUM('Crew','Marine','Revolutionary') NOT NULL,
-  Faction2_ID INT NOT NULL,
+  Faction2_ID INT,
   Location_ID INT NOT NULL,
   Casualities INT DEFAULT 0 CHECK (Casualities >= 0),
   Winner ENUM('Faction1','Faction2','Draw','Ongoing'),
@@ -247,7 +247,7 @@ CREATE TABLE INFO_LEAK (
 CREATE TABLE CONTEST (
   Contest_ID INT AUTO_INCREMENT NOT NULL,
   Participant1_Type ENUM('Crew','Marine') NOT NULL,
-  Participant1_ID INT NOT NULL,
+  Participant1_ID INT,
   Participant2_Crew_ID INT NOT NULL,
   Poneglyph_ID INT NOT NULL,
   Location_ID INT NOT NULL,
@@ -263,5 +263,5 @@ CREATE TABLE HAKI (
   Character_ID INT NOT NULL,
   Haki_Type ENUM('Observation','Armament','Conquerors') NOT NULL,
   PRIMARY KEY (Character_ID, Haki_Type),
-  FOREIGN KEY (Character_ID) REFERENCES Character(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE
+  FOREIGN KEY (Character_ID) REFERENCES `Character`(Character_ID) ON DELETE CASCADE ON UPDATE CASCADE
 );

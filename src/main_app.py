@@ -5,7 +5,10 @@ This application provides an interactive interface to query and manage the One P
 
 import pymysql
 import sys
+import textwrap
 from getpass import getpass
+
+MAX_COL_WIDTH = 40
 
 
 def get_db_connection(db_user, db_pass, db_host, db_name):
@@ -36,19 +39,35 @@ def display_results(results, title="Results"):
     print(f"{title}")
     print(f"{'='*80}")
     
-    # Get column names from first row
     columns = list(results[0].keys())
-    
-    # Print header
-    header = " | ".join(str(col)[:20].ljust(20) for col in columns)
+
+    def cell_text(value):
+        return "NULL" if value is None else str(value)
+
+    # Column width fits the content, capped; longer values wrap onto extra lines
+    # instead of being truncated.
+    widths = {
+        col: min(MAX_COL_WIDTH,
+                 max(len(str(col)), *(len(cell_text(r[col])) for r in results)))
+        for col in columns
+    }
+
+    header = " | ".join(str(col).ljust(widths[col]) for col in columns)
     print(header)
     print("-" * len(header))
-    
-    # Print rows
+
     for row in results:
-        row_data = " | ".join(str(row[col])[:20].ljust(20) if row[col] is not None else "NULL".ljust(20) for col in columns)
-        print(row_data)
-    
+        wrapped = {
+            col: textwrap.wrap(cell_text(row[col]), widths[col],
+                               break_long_words=True) or [""]
+            for col in columns
+        }
+        for i in range(max(len(lines) for lines in wrapped.values())):
+            print(" | ".join(
+                (wrapped[col][i] if i < len(wrapped[col]) else "").ljust(widths[col])
+                for col in columns
+            ).rstrip())
+
     print(f"\nTotal records: {len(results)}\n")
 
 
@@ -67,7 +86,7 @@ def search_characters_by_name(connection):
                 SELECT Character_ID, 
                        CONCAT_WS(' ', First_Name, Middle_Name, Last_Name) AS Full_Name,
                        Epithet, Age, Gender, Character_Type
-                FROM Character
+                FROM `Character`
                 WHERE First_Name LIKE %s 
                    OR Last_Name LIKE %s 
                    OR Middle_Name LIKE %s
@@ -104,7 +123,7 @@ def view_crew_members(connection):
                        p.Bounty,
                        p.Tier,
                        p.Status
-                FROM Character c
+                FROM `Character` c
                 JOIN Pirate p ON c.Character_ID = p.Character_ID
                 JOIN Crew cr ON p.Crew_ID = cr.Crew_ID
                 WHERE cr.Crew_ID = %s
@@ -129,7 +148,7 @@ def list_devil_fruit_users(connection):
                        df.Fruit_Name,
                        df.Fruit_Type,
                        df.Ability
-                FROM Character c
+                FROM `Character` c
                 JOIN EATS e ON c.Character_ID = e.Character_ID
                 JOIN Devil_Fruit df ON e.Fruit_ID = df.Fruit_ID
                 ORDER BY df.Fruit_Type, c.First_Name
@@ -238,7 +257,7 @@ def list_characters_with_haki(connection):
                        c.Epithet,
                        c.Character_Type,
                        h.Haki_Type
-                FROM Character c
+                FROM `Character` c
                 JOIN HAKI h ON c.Character_ID = h.Character_ID
                 WHERE h.Haki_Type = %s
                 ORDER BY c.Character_Type, c.First_Name
@@ -266,7 +285,7 @@ def view_top_bounties(connection):
                        p.Tier,
                        p.Threat_Level,
                        cr.Crew_Name
-                FROM Character c
+                FROM `Character` c
                 JOIN Pirate p ON c.Character_ID = p.Character_ID
                 LEFT JOIN Crew cr ON p.Crew_ID = cr.Crew_ID
                 ORDER BY p.Bounty DESC
@@ -304,15 +323,15 @@ def list_marines_by_rank(connection):
             sql_query = """
                 SELECT CONCAT_WS(' ', c.First_Name, c.Middle_Name, c.Last_Name) AS Full_Name,
                        c.Epithet,
-                       m.Rank,
+                       m.`Rank`,
                        m.Branch_Name,
                        m.Status,
                        l.Name AS Stationed_Location
-                FROM Character c
+                FROM `Character` c
                 JOIN Marine m ON c.Character_ID = m.Character_ID
                 LEFT JOIN Island i ON m.Stationed_Island_ID = i.Location_ID
                 LEFT JOIN Location l ON i.Location_ID = l.Location_ID
-                WHERE m.Rank = %s
+                WHERE m.`Rank` = %s
                 ORDER BY c.First_Name
             """
             cursor.execute(sql_query, (rank,))
@@ -388,68 +407,221 @@ def list_islands_by_climate(connection):
         print(f"Error during query: {e}", file=sys.stderr)
 
 
+MAX_PIRATE_BOUNTY = 10_000_000_000
+
+
+class InputCancelled(Exception):
+    """Raised when the user types 'cancel' at a prompt."""
+
+
+def _ask(prompt):
+    value = input(prompt).strip()
+    if value.lower() == 'cancel':
+        raise InputCancelled
+    return value
+
+
+def prompt_required(label):
+    """Ask until a non-empty value is given."""
+    while True:
+        value = _ask(f"{label}: ")
+        if value:
+            return value
+        print("  This field is required.")
+
+
+def prompt_optional(label):
+    return _ask(f"{label} (press Enter to skip): ") or None
+
+
+def prompt_number(label, cast, minimum, maximum):
+    """Ask until a number of the given type within [minimum, maximum] is entered."""
+    while True:
+        raw = _ask(f"{label}: ")
+        try:
+            value = cast(raw)
+        except ValueError:
+            print("  Please enter a valid number.")
+            continue
+        if minimum <= value <= maximum:
+            return value
+        print(f"  Value must be between {minimum} and {maximum}.")
+
+
+def prompt_choice(label, options, default=None):
+    """Numbered menu; re-prompts until a valid option (or the default on Enter)."""
+    print(f"{label}: " + "  ".join(f"{i}) {o}" for i, o in enumerate(options, 1)))
+    suffix = f" [default: {default}]" if default else ""
+    while True:
+        raw = _ask(f"Enter choice{suffix}: ")
+        if not raw and default:
+            return default
+        if raw.isdigit() and 1 <= int(raw) <= len(options):
+            return options[int(raw) - 1]
+        print(f"  Please enter a number from 1 to {len(options)}.")
+
+
+def prompt_existing_id(cursor, label, list_sql, exists_sql, show):
+    """Optionally pick a row by ID; the ID must exist. Returns None if skipped."""
+    cursor.execute(list_sql)
+    for row in cursor.fetchall():
+        print("  " + show(row))
+    while True:
+        raw = _ask(f"{label} (press Enter to skip): ")
+        if not raw:
+            return None
+        if raw.isdigit():
+            cursor.execute(exists_sql, (int(raw),))
+            if cursor.fetchone():
+                return int(raw)
+        print("  No such ID, try again.")
+
+
 def add_new_character(connection):
-    """FR11: Add a new character to the database."""
+    """FR11: Add a new character (and the matching subtype row) to the database."""
     print("\n--- Add New Character ---")
-    
+    print("(type 'cancel' at any prompt to abort)")
+
     try:
-        first_name = input("First Name: ").strip()
-        middle_name = input("Middle Name (press Enter to skip): ").strip() or None
-        last_name = input("Last Name (press Enter to skip): ").strip() or None
-        epithet = input("Epithet (press Enter to skip): ").strip() or None
-        origin_island = input("Origin Island Name: ").strip()
-        origin_sea = input("Origin Sea Name: ").strip()
-        height = float(input("Height (in cm): ").strip())
-        age = int(input("Age: ").strip())
-        
-        print("Gender: 1) Male  2) Female  3) Other")
-        gender_choice = input("Enter choice: ").strip()
-        gender_map = {'1': 'Male', '2': 'Female', '3': 'Other'}
-        gender = gender_map.get(gender_choice, 'Male')
-        
-        print("Character Type: 1) Pirate  2) Marine  3) Revolutionary  4) Civilian")
-        type_choice = input("Enter choice: ").strip()
-        type_map = {'1': 'Pirate', '2': 'Marine', '3': 'Revolutionary', '4': 'Civilian'}
-        character_type = type_map.get(type_choice, 'Civilian')
-        
         with connection.cursor() as cursor:
-            sql_query = """
-                INSERT INTO Character 
-                (First_Name, Middle_Name, Last_Name, Epithet, Origin_Island_Name, 
+            first_name = prompt_required("First Name")
+            middle_name = prompt_optional("Middle Name")
+            last_name = prompt_optional("Last Name")
+            epithet = prompt_optional("Epithet")
+            origin_island = prompt_required("Origin Island Name")
+            origin_sea = prompt_required("Origin Sea Name")
+
+            cursor.execute("SELECT Name FROM Location WHERE Name IN (%s, %s)",
+                           (origin_island, origin_sea))
+            known = {r['Name'] for r in cursor.fetchall()}
+            for name in (origin_island, origin_sea):
+                if name not in known:
+                    print(f"  Note: '{name}' is not a known Location (saved as plain text).")
+
+            height = prompt_number("Height (in cm)", float, 0, 999.99)
+            age = prompt_number("Age", int, 0, 500)
+            gender = prompt_choice("Gender", ['Male', 'Female', 'Other'])
+            character_type = prompt_choice(
+                "Character Type", ['Pirate', 'Marine', 'Revolutionary', 'Civilian'])
+
+            subtype = None   # (sql, params-builder) filled below
+            crew_id = None
+            bounty = 0
+
+            if character_type == 'Pirate':
+                bounty = prompt_number("Bounty", int, 0, MAX_PIRATE_BOUNTY)
+                tier = prompt_choice("Tier", ['Rookie', 'Supernova', 'Veteran',
+                                              'Yonko Commander', 'Yonko', 'Pirate King'])
+                threat = prompt_choice("Threat Level", ['Low', 'Medium', 'High',
+                                                        'Extreme', 'World Threat'])
+                status = prompt_choice("Status", ['Active', 'Captured', 'Deceased',
+                                                  'Retired', 'Unknown'], default='Active')
+                role = prompt_optional("Role")
+                print("\nAvailable Crews:")
+                crew_id = prompt_existing_id(
+                    cursor, "Crew ID",
+                    "SELECT Crew_ID, Crew_Name FROM Crew ORDER BY Crew_Name",
+                    "SELECT 1 FROM Crew WHERE Crew_ID = %s",
+                    lambda r: f"{r['Crew_ID']}: {r['Crew_Name']}")
+                subtype = (
+                    "INSERT INTO Pirate (Character_ID, Bounty, Tier, Threat_Level, "
+                    "Status, Role, Crew_ID) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (bounty, tier, threat, status, role, crew_id))
+
+            elif character_type in ('Marine', 'Revolutionary'):
+                if character_type == 'Marine':
+                    rank = prompt_choice("Rank", ['Seaman', 'Petty Officer', 'Lieutenant',
+                                                  'Captain', 'Commodore', 'Rear Admiral',
+                                                  'Vice Admiral', 'Admiral', 'Fleet Admiral'])
+                    status = prompt_choice("Status", ['Active', 'On Leave', 'Retired',
+                                                      'Deceased', 'Dishonorably Discharged'],
+                                           default='Active')
+                    branch_id = prompt_required("Branch ID")
+                    branch_name = prompt_required("Branch Name")
+                else:
+                    role = prompt_choice("Army Role", ['Soldier', 'Officer', 'Commander',
+                                                       'Army Commander', 'Chief of Staff',
+                                                       'Supreme Commander'])
+                    bounty = prompt_number("Bounty", int, 0, MAX_PIRATE_BOUNTY * 10)
+                    status = prompt_choice("Status", ['Active', 'Captured', 'Deceased',
+                                                      'MIA', 'Undercover'], default='Active')
+                print("\nIslands:")
+                island_id = prompt_existing_id(
+                    cursor, "Stationed Island ID",
+                    "SELECT l.Location_ID, l.Name FROM Location l "
+                    "JOIN Island i ON l.Location_ID = i.Location_ID ORDER BY l.Name",
+                    "SELECT 1 FROM Island WHERE Location_ID = %s",
+                    lambda r: f"{r['Location_ID']}: {r['Name']}")
+                if character_type == 'Marine':
+                    subtype = (
+                        "INSERT INTO Marine (Character_ID, `Rank`, Status, Branch_ID, "
+                        "Branch_Name, Stationed_Island_ID) VALUES (%s, %s, %s, %s, %s, %s)",
+                        (rank, status, branch_id, branch_name, island_id))
+                else:
+                    subtype = (
+                        "INSERT INTO Revolutionary (Character_ID, Army_Role, Bounty, "
+                        "Status, Stationed_Island_ID) VALUES (%s, %s, %s, %s, %s)",
+                        (role, bounty, status, island_id))
+
+            # Insert the character and its subtype row in a single transaction.
+            cursor.execute("""
+                INSERT INTO `Character`
+                (First_Name, Middle_Name, Last_Name, Epithet, Origin_Island_Name,
                  Origin_Sea_Name, Height, Age, Gender, Character_Type)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            cursor.execute(sql_query, (first_name, middle_name, last_name, epithet,
-                                      origin_island, origin_sea, height, age, 
-                                      gender, character_type))
+            """, (first_name, middle_name, last_name, epithet, origin_island,
+                  origin_sea, height, age, gender, character_type))
+            character_id = cursor.lastrowid
+
+            if subtype:
+                sql, params = subtype
+                cursor.execute(sql, (character_id, *params))
+            if character_type == 'Pirate' and crew_id is not None:
+                cursor.execute(
+                    "UPDATE Crew SET Total_Bounty = Total_Bounty + %s WHERE Crew_ID = %s",
+                    (bounty, crew_id))
+
             connection.commit()
-            print(f"✓ Character '{first_name}' added successfully with ID: {cursor.lastrowid}")
-    except ValueError:
-        print("Invalid input format.")
+            print(f"✓ {character_type} '{first_name}' added successfully with ID: {character_id}")
+    except InputCancelled:
+        connection.rollback()
+        print("Cancelled. Nothing was saved.")
     except pymysql.Error as e:
         connection.rollback()
         print(f"Error adding character: {e}", file=sys.stderr)
 
 
 def update_pirate_bounty(connection):
-    """FR12: Update a pirate's bounty."""
+    """FR12: Update a pirate's bounty (and keep the crew's Total_Bounty in sync)."""
     print("\n--- Update Pirate Bounty ---")
-    
+
     try:
-        character_id = input("Enter Character ID of the pirate: ").strip()
-        new_bounty = input("Enter new bounty amount: ").strip()
-        
+        character_id = _ask("Enter Character ID of the pirate: ")
+        new_bounty = prompt_number("Enter new bounty amount", int, 0, MAX_PIRATE_BOUNTY)
+
         with connection.cursor() as cursor:
-            # Verify it's a pirate
-            cursor.execute("SELECT Character_ID FROM Pirate WHERE Character_ID = %s", (character_id,))
-            if not cursor.fetchone():
+            cursor.execute(
+                "SELECT Bounty, Crew_ID FROM Pirate WHERE Character_ID = %s FOR UPDATE",
+                (character_id,))
+            pirate = cursor.fetchone()
+            if not pirate:
+                connection.rollback()
                 print("Character is not a pirate or does not exist.")
                 return
-            
-            sql_query = "UPDATE Pirate SET Bounty = %s WHERE Character_ID = %s"
-            cursor.execute(sql_query, (new_bounty, character_id))
+
+            old_bounty = pirate['Bounty'] or 0
+            cursor.execute("UPDATE Pirate SET Bounty = %s WHERE Character_ID = %s",
+                           (new_bounty, character_id))
+            if pirate['Crew_ID'] is not None:
+                cursor.execute(
+                    "UPDATE Crew SET Total_Bounty = Total_Bounty + %s WHERE Crew_ID = %s",
+                    (new_bounty - old_bounty, pirate['Crew_ID']))
             connection.commit()
-            print(f"✓ Bounty updated successfully for Character ID {character_id}")
+            print(f"✓ Bounty updated for Character ID {character_id}: "
+                  f"{old_bounty:,} -> {new_bounty:,}")
+    except InputCancelled:
+        connection.rollback()
+        print("Cancelled. Nothing was saved.")
     except pymysql.Error as e:
         connection.rollback()
         print(f"Error updating bounty: {e}", file=sys.stderr)
@@ -463,10 +635,10 @@ def delete_vivre_card(connection):
         with connection.cursor() as cursor:
             # Show existing vivre cards
             cursor.execute("""
-                SELECT v.Card_ID, v.Creator_ID, v.Condition,
+                SELECT v.Card_ID, v.Creator_ID, v.`Condition`,
                        CONCAT_WS(' ', c.First_Name, c.Last_Name) AS Creator_Name
                 FROM Vivre_Card v
-                JOIN Character c ON v.Creator_ID = c.Character_ID
+                JOIN `Character` c ON v.Creator_ID = c.Character_ID
                 ORDER BY v.Card_ID
             """)
             cards = cursor.fetchall()
@@ -554,7 +726,7 @@ def find_characters_by_skill(connection):
                        s.Skill_Name,
                        s.Category,
                        s.Difficulty
-                FROM Character c
+                FROM `Character` c
                 JOIN HAS_SKILL hs ON c.Character_ID = hs.Character_ID
                 JOIN Skill s ON hs.Skill_ID = s.Skill_ID AND hs.User_ID = s.User_ID
                 WHERE s.Category = %s
